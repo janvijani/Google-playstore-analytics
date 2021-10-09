@@ -1,0 +1,418 @@
+---
+                                          IE-6200 GROUP PROJECT
+                                             CODE FILE
+                                          
+title: "Analysis of Google Play Store Apps"
+output: html_document
+---
+
+LIBRARIES USED
+
+```{r}
+#Loading all the packages
+library(prob)    
+library(tidyverse)        
+library(e1071) 
+library(ggplot2)
+library(mlbench)
+library(caret)
+library(RColorBrewer)
+library(fitdistrplus)
+library(dplyr)
+library(reshape2)
+```
+
+1) DATASET PREPROCESSING
+
+```{r}
+getwd()
+#importing the data set
+google_apps_df <- read.csv('google.csv', header = TRUE, sep = ',')
+#assigning correct datatypes to data set
+google_apps_df$App = as.character(google_apps_df$App)
+google_apps_df$Category = as.character(google_apps_df$Category)
+google_apps_df$Type = as.character(google_apps_df$Type)
+google_apps_df$Content = as.character(google_apps_df$Content)
+google_apps_df$Genres = as.character(google_apps_df$Genres)
+google_apps_df$Rating = as.numeric(google_apps_df$Rating)
+google_apps_df$Reviews <- as.numeric(google_apps_df$Reviews)
+google_apps_df$Log_Installs <- as.numeric(google_apps_df$Log_Installs)
+str(google_apps_df)
+google_apps_df$Installs <- str_replace_all(google_apps_df$Installs,"\\,","") 
+
+```
+
+2) GRAPHICAL ANALYSIS
+
+```{r}
+#1) Barplot for the Total Apps in each category
+#The Bar plot shows the total number of apps in each category.
+ggplot(data = google_apps_df)+
+geom_bar(mapping =aes(x = Category),color = 'black', fill = 'orange')+xlab('Category')+ 
+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+labs(title= "Number of Apps in Each Category")
+
+
+#2) Bar plot representing the top 15 genres in the play store
+#The Bar plot represents the Top 15 App Genres or Categories in the play store.
+google_apps_df %>% 
+  group_by(Genres) %>%
+  summarize(Total_Installs = sum(Log_Installs)) %>%
+  arrange(desc(Total_Installs)) %>%
+  head(15) %>%
+  ggplot(aes(fct_rev(fct_reorder(Genres,Total_Installs)),Total_Installs))+
+  geom_bar(stat="identity", fill="blue") + 
+  labs(title= "Top 15 Genres by Total Installs",x="Genres" ) +theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+#3) Histogram for Ratings with Normal curve   
+rating_df <- google_apps_df$Rating
+hist_rating<-hist(rating_df, breaks=30, col="#676767", xlab="Rating",
+        main="Histogram for Ratings with Normal Curve")
+xfit<-seq(min(x),max(x),length=40)
+yfit<-dnorm(xfit,mean=mean(x),sd=sd(x))
+yfit <- yfit*diff(hist_rating$mids[1:2])*length(x)
+lines(xfit, yfit, col="#0BFCD1", lwd=2)
+
+#4) Histogram for Rating and No. of installs differentiated by Type
+ggplot (google_apps_df, aes(fill=Type, y=Log_Installs, x=Rating))+
+geom_histogram(position="stack", stat="identity")+ ylab("No of Installs")
+#We can see that as the rating increases, number of installs for both free and paid app increases.
+
+#We can see that the histogram is highly negatively skewed
+Skewness_rating <- skewness(google_apps_df$Rating)    #Skewness of Histogram
+Skewness_rating
+
+
+#5)Pie chart representing the Percentage of Content Type
+freq<-table(google_apps_df$Content)
+fr<-as.data.frame(freq)
+
+fr <- fr %>%
+  arrange(desc(Freq))
+
+coul = brewer.pal(5, "Pastel1") 
+
+
+op <- par(cex = 0.5)
+
+pielabels <- sprintf("%s = %3.1f%s", fr$Var1,
+                     100*fr$Freq/sum(fr$Freq), "%")
+pie(fr$Freq,
+    labels=NA,
+    clockwise=TRUE,
+    col=coul,
+    border="black",
+    radius=1,
+    main ="Percentage of Content of Apps",
+    cex.main=2.5,
+    col.main="Blue",
+    )
+legend("topleft",legend=pielabels,bty="n",
+       fill=coul, cex=1.3,) 
+
+
+#6) Boxplot representing the Total Installs(log) by the Type of Application.
+boxplot <-ggplot(data = google_apps_df)+geom_boxplot(mapping =aes(x = Type, y = Log_Installs, fill = Type,)) + labs(title="Total Installs(log) by the Type of Application")+ 
+  scale_fill_brewer(palette="Dark2")+ylab("Total Installs")+ xlab("Application Type")
+boxplot
+#Calculating Quantiles for free and paid apps
+Free_df <- google_apps_df[google_apps_df$Type=="Free",]
+No_Free_Installs <- quantile(Free_df$Log_Installs)
+No_Free_Installs
+
+Paid_df <- google_apps_df[google_apps_df$Type=="Paid",]
+No_Paid_Installs <- quantile(Paid_df$Log_Installs)
+No_Paid_Installs
+#As the quantiles of free apps are more than paid apps, we can conclude from the boxplot that people install free apps more than paid apps.
+
+```
+
+3) PROBABILISTIC ANALYSIS
+
+```{r}
+#1) PMF and CMF of ratings v/s the no of installs
+
+#creating Rating Bins
+Ratingbins<-google_apps_df$Rating
+cut(Ratingbins,4,labels = c("1-2","2-3","3-4","4-5"))
+google_apps_df$Ratingbins<-cut(Ratingbins,4,labels = c("1-2","2-3","3-4","4-5"))
+
+#creating dataframe and calculating CMF and PMF
+rating_prob <- google_apps_df %>%
+  group_by(Ratingbins) %>%
+  summarise(Log_Installs = n()) %>% 
+  mutate(pmf = Log_Installs/sum(Log_Installs)) %>% #PMF
+  mutate(cdf = cumsum(pmf)) #CDF
+rating_prob
+
+#calculating average rating of all installed apps
+weighted.mean(google_apps_df$Rating, google_apps_df$Log_Installs)
+
+#plotting the output
+plot_rating<- ggplot(rating_prob, aes(x=Ratingbins,y=Log_Installs)) +
+  geom_point()+xlab("Ratings ")+
+  geom_point()+ylab("Installs")
+plot_rating
+
+#2) PMF and CMF of Size of apps v/s the no of installs
+
+#Creating size bins
+
+Sizebins<-google_apps_df$Size
+cut(google_apps_df$Size,10,labels = as.integer(c(0,1,2,3,4,5,6,7,8,9)))
+google_apps_df$Sizebins<-cut(google_apps_df$Size,10,labels = as.integer(c(0,1,2,3,4,5,6,7,8,9)))
+
+#creating dataframe and calculating CMF and PMF
+size_prob <- google_apps_df %>%
+  group_by(Sizebins) %>%
+  summarise(Log_Installs = n()) %>% 
+  mutate(pmf = Log_Installs/sum(Log_Installs)) %>% #PMF
+  mutate(cdf = cumsum(pmf)) #CDF
+size_prob
+
+plot_size<- ggplot(size_prob, aes(y=Log_Installs, x=Sizebins)) +
+  geom_point()+xlab("Size in MBs")+
+  geom_point()+ylab(" No of apps Installed ")
+plot_size
+
+#3) PMF and CMF of Type v/s the no of installs
+
+#creating dataframe and calculating CMF and PMF
+type_prob <- google_apps_df %>%
+  group_by(Type) %>%
+  summarise(Log_Installs = n()) %>% 
+  mutate(pmf = Log_Installs/sum(Log_Installs)) %>% #PMF
+  mutate(cdf = cumsum(pmf)) #CDF
+type_prob
+
+#4) Joint Probability
+#calculating joint probability of apps installed compared with size of apps and apps installed compared with rating given to app
+
+#calculating joint frequency
+joint_freq <- outer(size_prob$Log_Installs, rating_prob$Log_Installs)
+rownames(joint_freq) <- c("<=10mb","10mb-20mb","20mb-30mb","30mb-40mb","40mb-50mb","50mb-60mb","60mb-70mb","60mb-80mb","80mb-90mb","90mb-100mb" )
+colnames(joint_freq) <- c("1-2","2-3","3-4","4-5")
+joint_freq
+
+#calculating joint probability 
+joint_prob <- round(joint_freq/sum(joint_freq),3)
+joint_prob
+#Hence, we can conclude that the probability of an application being installed is more if it has a size range <=20 mb and has a rating between 4.0 and 5.0
+
+#5)Correlation Coefficient
+#calculating correlation coefficient between the ratings given to an app and the reviews given to an app
+rating_corr <- google_apps_df %>%
+  group_by(Ratingbins) %>%
+  summarise(count = n())
+rating_corr
+
+#creating review bins 
+ReviewBins<-google_apps_df$Reviews
+cut(google_apps_df$Reviews,4,labels = c("below 1 Cr", "1 Cr-2 Cr", "2 Cr-3 Cr","3 Cr-4 Cr" ))
+google_apps_df$ReviewBins<-cut(google_apps_df$Reviews,4,labels = c("below 1 Cr", "1 Cr-2 Cr", "2 Cr-3 Cr","3 Cr-4 Cr" ))
+
+review_corr <- google_apps_df %>%
+  group_by(ReviewBins) %>%
+  summarise(count = n())
+review_corr
+
+# calculating the coefficient
+correlations<-cor(rating_corr$count, review_corr$count)
+correlations
+
+#Therefore, since the value is in-between 0 and +1/-1, there is a relationship, 
+#but the points don’t fall on a line.
+
+```
+
+4) GOODNESS OF FIT
+
+```{r}
+#Visualizing the Size (Continuous Variable)
+ggplot(google_apps_df, aes(x = Size)) + 
+  geom_histogram(color = 'black', fill = 'blue', bins = 25) +
+  theme_bw() +
+  ggtitle("Histogram of App Sizes")
+
+#Fit for Size:
+descdist(google_apps_df$Size)
+
+#Closest to Normal and Logistic Distributions
+
+#Exponential Distribution is the closest to the distribution of Size:
+
+#Parameters for Normal Distribution:
+fit_x <- fitdist(google_apps_df$Size, "norm")
+
+summary(fit_x)
+
+#Parameters for Lognormal Distribution:
+fit_lg <- fitdist(google_apps_df$Size, "lnorm")
+
+summary(fit_lg)
+
+#Goodness of fit plots for Size of Apps:
+par(mfrow=c(2,2))
+plot.legend <-c("Normal Distribution")
+denscomp(list(fit_x), legendtext = plot.legend, xlab ='Size of App', xlegend ='topleft')
+cdfcomp(list(fit_x), legendtext = plot.legend, xlab ='Size of App')
+qqcomp(list(fit_x), legendtext = plot.legend, xlab ='Size of App')
+ppcomp(list(fit_x), legendtext = plot.legend, xlab ='Size of App')
+
+
+par(mfrow=c(2,2))
+plot.legend <-c("Lognormal Distribution")
+denscomp(list(fit_lg), legendtext = plot.legend, xlab ='Size of App', xlegend ='topleft')
+cdfcomp(list(fit_lg), legendtext = plot.legend, xlab ='Size of App')
+qqcomp(list(fit_lg), legendtext = plot.legend, xlab ='Size of App')
+ppcomp(list(fit_lg), legendtext = plot.legend, xlab ='Size of App')
+
+```
+
+
+5) HYPOTHESIS TESTING
+
+```{r}
+#Boxplot Representing the Rating among Free and Paid apps.
+ggplot(data = google_apps_df, aes(x = Type, y = Rating)) +
+  geom_boxplot() +
+  stat_boxplot(geom = "errorbar") +
+  stat_summary(fun.y = mean, col = "black", geom = "point", size = 3) +
+  ggtitle("Boxplots of Rating Among Free and Paid")
+
+#Histogram
+xbar <- tapply(google_apps_df$Rating, google_apps_df$Type, mean)
+
+s <- tapply(google_apps_df$Rating, google_apps_df$Type, sd)
+
+google_apps_df$normal.density <- apply(google_apps_df, 1, function(x){
+  dnorm(as.numeric(x["Rating"]),
+        xbar[x["Type"]], s[x["Type"]])})
+
+ggplot(google_apps_df, aes(x = Rating)) +
+  geom_histogram(aes(y = ..density..), 
+                 # bins = sqrt(nrow(bike)) + 2,
+                 bins = 20,
+                 fill = "grey", col = "black") +
+  facet_grid(Type ~ .) +
+  geom_density(col = "red", lwd = 1) +
+  geom_line(aes(y = normal.density), col = "blue", lwd = 1) +
+  ggtitle("Histograms of Rating Among Free and Paid")
+
+#QQ Plot representing the Rating Among Free and Paid apps
+google_apps_df$intercept <- apply(google_apps_df, 1, function(x){xbar[x["Type"]]})
+
+google_apps_df$slope <- apply(google_apps_df, 1, function(x){s[x["Type"]]})
+
+ggplot(google_apps_df, aes(sample = Rating)) +
+  stat_qq() +
+  facet_grid(Type ~ .) +
+  geom_abline(data = google_apps_df, aes(intercept = intercept, slope = slope)) +
+  ggtitle("QQ Plots of Rating Among Free and Paid")
+
+#1) Hypothesis Test-1
+#Two tailed T test:
+
+#H0:- True mean rating between paid and free apps are the same
+#H1:- True mean rating between paid and free apps aren't the same
+t.test(google_apps_df$Rating ~ google_apps_df$Type, mu = 0, conf.level = 0.95,
+       paired = FALSE, alternative = "two.sided", var.equal = FALSE)
+
+#As the p-value is < the alpha value (0.05), we can reject the H0 
+#and state that the true mean ratings for paid and free apps are different
+
+#Calculating No. of Apps in each Category
+google_apps_df %>%             
+  group_by(Category) %>%
+  tally()%>%
+  arrange(desc(n))
+
+#Filtering the apps under the family category
+google_apps_df_family <- google_apps_df %>%
+  filter(Category == 'FAMILY')
+
+mean(google_apps_df$Size)           #Mean of Size of all the Apps
+
+mean(google_apps_df_family$Size)    #Mean Size of Apps in Family Category
+
+#2) Hypothesis Test-2
+#Whether the mean Size of Apps in the Family Category is the same as the Population Mean.
+#H0: Mean = 30.16281
+#H1: Mean != 30.16281
+
+t.test(google_apps_df_family$Size, mu = mean(google_apps_df$Size))
+#As the p value is less than 0.05, we can reject the null hypothesis and state that
+#there is a difference in the mean of the size of apps in the family category and population
+
+
+#3) Hypothesis Test-3
+#Whether there is a significant difference between the mean of Rating from a random sample 
+#of 1000 apps and the mean of Rating for the entire population.
+
+#Function to calculate the Z-value
+z.test <- function(sample, pop){
+  sample_mean = mean(sample)
+  pop_mean = mean(pop)
+  n = length(sample)
+  var = var(pop)
+  z = (sample_mean-pop_mean)/(sqrt(var/(n)))
+  return(z)
+}
+
+#Sampling 1000 apps:
+df_sample <-sample_n(google_apps_df, 1000)
+
+mean(df_sample$Rating)
+mean(google_apps_df$Rating)
+
+#H0: mean = 4.155
+#H1: mean != 4.155 
+z.test(df_sample$Rating, google_apps_df$Rating)
+
+#z-value lies within the range[???1.96,1.96], we thus fail to reject null hypothesis and conclude that there is no significant difference between sample mean Rating and population mean Rating
+
+```
+
+6) ADVANCED ANALYSIS
+
+```{r}
+
+#1) Multiple Regression to Predict the Number of Installs using variables Rating, Size and Reviews
+sum(is.na(google_apps_df))   #To check if there are any missing values
+  
+# Performs stratified random split of the data set
+TrainingIndex <- createDataPartition(google_apps_df$Log_Installs, p=0.7, list = FALSE)
+TrainingSet <- google_apps_df[TrainingIndex,] # Training Set
+TestingSet <- google_apps_df[-TrainingIndex,] # Test Set
+
+# Build Training model
+Model <- train(Log_Installs~ Rating+Size+Reviews, data = TrainingSet,
+               method = "lm",
+               na.action = na.omit,
+               preProcess=c("scale","center"),
+               trControl= trainControl(method="none"))
+
+              
+# Apply model for prediction
+Model.training <-predict(Model, TrainingSet) # Apply model to make prediction on Training set
+Model.testing <-predict(Model, TestingSet) # Apply model to make prediction on Testing set
+               
+# Model performance (Displays scatter plot and performance metrics)
+# Scatter plot of Training set
+plot(TrainingSet$Log_Installs,Model.training, col = "blue" )
+plot(TestingSet$Log_Installs,Model.testing, col = "red" )
+
+
+summary(Model)
+#Correlation coefficient
+R.training <- cor(TrainingSet$Log_Installs,Model.training)
+R.training
+R.testing <- cor(TestingSet$Log_Installs,Model.testing)
+R.testing
+
+
+```
+
+
+
+

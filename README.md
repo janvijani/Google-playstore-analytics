@@ -1,0 +1,2 @@
+# Google playstore analytics 
+ The global mobile application market size was valued at USD 154.05 billion. They are easy to create and also profitable if deployed in the right manner. In this project, we perform a detailed analysis of the Android app market using R Studio. The aim of the project is to collate and compare different attributes of applications on google play store in-order to derive meaningful insights.
